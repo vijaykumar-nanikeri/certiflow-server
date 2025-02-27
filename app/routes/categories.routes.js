@@ -9,23 +9,26 @@ const auth = require("../controllers/auth.controller");
 router.get("/", auth.verifyAuthToken, (req, res) => {
 	const query = `
     SELECT
-      etc.id, etc.display_name AS name,
-      CASE WHEN ets.subcategories IS NOT NULL THEN ets.subcategories ELSE 0 END AS subcategories,
-      etc.created_on AS createdOn, etud.display_name AS createdBy
+      etc.id, 
+      etc.display_name AS name,
+      COALESCE(ets.subcategories, 0) AS subcategories,
+      etc.created_on AS createdOn, 
+      ANY_VALUE(etud.display_name) AS createdBy
     FROM
       et_categories etc
-      LEFT JOIN
-        (
-          SELECT COUNT(id) AS subcategories, category_id
-          FROM et_subcategories
-          WHERE deactivate = 0
-          GROUP BY category_id
-        ) ets
-        ON etc.id = ets.category_id,
-      et_user_details etud
-    WHERE etc.deactivate = 0 AND etc.created_by = etud.user_id
-    GROUP BY etc.id
-    ORDER BY CASE WHEN etc.updated_on IS NOT NULL THEN etc.updated_on ELSE etc.created_on END DESC`;
+      LEFT JOIN (
+        SELECT COUNT(id) AS subcategories, category_id
+        FROM et_subcategories
+        WHERE deactivate = 0
+        GROUP BY category_id
+      ) ets ON etc.id = ets.category_id
+      LEFT JOIN et_user_details etud ON etc.created_by = etud.user_id
+    WHERE 
+      etc.deactivate = 0
+    GROUP BY 
+      etc.id, etc.display_name, etc.created_on
+    ORDER BY 
+      COALESCE(etc.updated_on, etc.created_on) DESC;`;
 
 	generic.fetchRecords(res, query);
 });
@@ -68,32 +71,36 @@ router.get("/:id/subcategories", auth.verifyAuthToken, (req, res) => {
 
 	const query = `
     SELECT
-      ets.id, ets.display_name AS name,
-      CASE WHEN etst.types IS NOT NULL THEN etst.types ELSE 0 END AS types,
-      CASE WHEN ett.templates IS NOT NULL THEN ett.templates ELSE 0 END AS templates,
-      ets.created_on AS createdOn, etud.display_name AS createdBy
+    ets.id, 
+    ets.display_name AS name,
+    COALESCE(etst.types, 0) AS types,
+    COALESCE(ett.templates, 0) AS templates,
+    ets.created_on AS createdOn, 
+    ANY_VALUE(etud.display_name) AS createdBy
     FROM
       et_subcategories ets
-      LEFT JOIN
-        (
-          SELECT COUNT(id) AS types, subcategory_id
-          FROM et_subcategory_types
-          WHERE deactivate = 0
-          GROUP BY subcategory_id
-        ) etst
-        ON ets.id = etst.subcategory_id
-      LEFT JOIN
-        (
-          SELECT COUNT(ett.id) AS templates, ett.subcategory_id
-          FROM et_templates ett, (SELECT id AS userId FROM et_users WHERE user_category_id = 1) etu
-          WHERE ett.deactivate = 0 AND ett.created_by IN (etu.userId)
-          GROUP BY ett.subcategory_id
-        ) ett
-        ON ets.id = ett.subcategory_id,
-      et_user_details etud
-    WHERE ets.category_id = ${id} AND ets.deactivate = 0 AND ets.created_by = etud.user_id
-    GROUP BY ets.id
-    ORDER BY CASE WHEN ets.updated_on IS NOT NULL THEN ets.updated_on ELSE ets.created_on END DESC`;
+      LEFT JOIN (
+        SELECT COUNT(id) AS types, subcategory_id
+        FROM et_subcategory_types
+        WHERE deactivate = 0
+        GROUP BY subcategory_id
+      ) etst ON ets.id = etst.subcategory_id
+      LEFT JOIN (
+        SELECT COUNT(ett.id) AS templates, ett.subcategory_id
+        FROM et_templates ett
+        JOIN (
+          SELECT id AS userId FROM et_users WHERE user_category_id = 1
+        ) etu ON ett.created_by = etu.userId
+        WHERE ett.deactivate = 0
+        GROUP BY ett.subcategory_id
+      ) ett ON ets.id = ett.subcategory_id
+      LEFT JOIN et_user_details etud ON ets.created_by = etud.user_id
+    WHERE 
+      ets.category_id = ${id} AND ets.deactivate = 0
+    GROUP BY 
+      ets.id, ets.display_name, ets.created_on
+    ORDER BY 
+      COALESCE(ets.updated_on, ets.created_on) DESC;`;
 
 	generic.fetchRecords(res, query);
 });
